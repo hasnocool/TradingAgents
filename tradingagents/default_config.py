@@ -66,10 +66,14 @@ DEFAULT_CONFIG = {
     # Data vendor configuration
     # Category-level configuration (default for all tools in category)
     "data_vendors": {
-        "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
-        "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
-        "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: yfinance, alpha_vantage, newsapi
+        # Alpha Vantage preferred for OHLCV, indicators, and fundamentals when a key
+        # is present; yfinance is always the final fallback (no key required).
+        "core_stock_apis": "alpha_vantage,yfinance",
+        "technical_indicators": "alpha_vantage,yfinance",
+        "fundamental_data": "alpha_vantage,yfinance",
+        # News: Alpha Vantage ticker-specific news first, then NewsAPI broad search,
+        # then yfinance as the free fallback.
+        "news_data": "alpha_vantage,newsapi,yfinance",
         "crypto_market_data": "coingecko",   # Options: coingecko, coinmarketcap
         "crypto_fundamentals": "coingecko",  # Options: coingecko, coinmarketcap
         "crypto_onchain": "santiment",       # Santiment on-chain metrics
@@ -78,7 +82,13 @@ DEFAULT_CONFIG = {
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
-        # Example: "get_stock_data": "alpha_vantage",  # Override category default
+        # Crypto sentiment/onchain tools live in the crypto_fundamentals category
+        # which defaults to coingecko — pin them explicitly to santiment so they
+        # don't fall back unnecessarily.
+        "get_crypto_social_sentiment": "santiment",
+        "get_crypto_onchain_metrics": "santiment",
+        "get_crypto_dev_activity": "santiment",
+        "get_github_repo_activity": "github",
     },
     # Benchmark ticker for alpha calculation: SPY for equities, BTC-USD for crypto
     "benchmark_ticker": None,  # Auto-selected: SPY for equity, BTC-USD for crypto
