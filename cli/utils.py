@@ -1,3 +1,4 @@
+import os
 import questionary
 from typing import List, Optional, Tuple, Dict
 
@@ -228,6 +229,14 @@ def select_deep_thinking_agent(provider) -> str:
     """Select deep thinking llm engine using an interactive selection."""
     return _select_model(provider, "deep")
 
+def _ollama_url() -> str:
+    """Return the Ollama base URL, honouring OLLAMA_BASE_URL if set."""
+    raw = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+    if not raw.rstrip("/").endswith("/v1"):
+        raw = raw.rstrip("/") + "/v1"
+    return raw
+
+
 def select_llm_provider() -> tuple[str, str | None]:
     """Select the LLM provider and its API endpoint."""
     # (display_name, provider_key, base_url)
@@ -241,8 +250,11 @@ def select_llm_provider() -> tuple[str, str | None]:
         ("GLM", "glm", "https://open.bigmodel.cn/api/paas/v4/"),
         ("OpenRouter", "openrouter", "https://openrouter.ai/api/v1"),
         ("Azure OpenAI", "azure", None),
-        ("Ollama", "ollama", "http://localhost:11434/v1"),
+        # Respect OLLAMA_BASE_URL when set (e.g. inside Docker where the
+        # service name 'ollama' must be used instead of localhost).
+        ("Ollama", "ollama", _ollama_url()),
     ]
+
 
     choice = questionary.select(
         "Select your LLM Provider:",

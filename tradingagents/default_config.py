@@ -1,6 +1,34 @@
 import os
 
-_TRADINGAGENTS_HOME = os.path.join(os.path.expanduser("~"), ".tradingagents")
+
+def _resolve_tradingagents_home() -> str:
+    # Explicit override always wins.
+    if "TRADINGAGENTS_HOME" in os.environ:
+        return os.environ["TRADINGAGENTS_HOME"]
+    # When installed as a package (e.g. into a venv/site-packages) __file__ is
+    # inside the venv, not the project root — relative paths from there are
+    # wrong and unwritable.  Fall back to the current working directory, which
+    # is the Docker WORKDIR (/home/appuser/app) or the project root when
+    # running from source with `python -m cli.main`.
+    if "site-packages" in __file__:
+        return os.path.join(os.getcwd(), ".tradingagents")
+    # Running from source: store alongside the project root.
+    return os.path.abspath(os.path.join(os.path.dirname(__file__), "..", ".tradingagents"))
+
+
+_TRADINGAGENTS_HOME = _resolve_tradingagents_home()
+
+# When running inside Docker with the ollama profile the container-to-container
+# URL is injected via OLLAMA_BASE_URL.  Outside Docker (bare-metal or CLI) it
+# is not set and we fall back to localhost so nothing changes for existing users.
+_ollama_base_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+# Normalise: the LangChain client expects the /v1 suffix.
+if not _ollama_base_url.rstrip("/").endswith("/v1"):
+    _ollama_base_url = _ollama_base_url.rstrip("/") + "/v1"
+
+_default_provider   = os.getenv("LLM_PROVIDER",     "openai")
+_default_deep_model = os.getenv("DEEP_THINK_LLM",   "gpt-5.4")
+_default_quick_model = os.getenv("QUICK_THINK_LLM", "gpt-5.4-mini")
 
 DEFAULT_CONFIG = {
     "project_dir": os.path.abspath(os.path.join(os.path.dirname(__file__), ".")),
@@ -11,16 +39,16 @@ DEFAULT_CONFIG = {
     # the oldest resolved entries are pruned once this limit is exceeded.
     # Pending entries are never pruned. None disables rotation entirely.
     "memory_log_max_entries": None,
-    # LLM settings
-    "llm_provider": "openai",
-    "deep_think_llm": "gpt-5.4",
-    "quick_think_llm": "gpt-5.4-mini",
-    # When None, each provider's client falls back to its own default endpoint
-    # (api.openai.com for OpenAI, generativelanguage.googleapis.com for Gemini, ...).
-    # The CLI overrides this per provider when the user picks one. Keeping a
-    # provider-specific URL here would leak (e.g. OpenAI's /v1 was previously
-    # being forwarded to Gemini, producing malformed request URLs).
-    "backend_url": None,
+    # LLM settings — all three can be overridden by environment variables,
+    # which allows Docker Compose to pre-configure the provider and models
+    # without touching this file (see docker-compose.yml ollama profile).
+    "llm_provider": _default_provider,
+    "deep_think_llm": _default_deep_model,
+    "quick_think_llm": _default_quick_model,
+    # backend_url: when LLM_PROVIDER=ollama, use the Docker-injected base URL
+    # (OLLAMA_BASE_URL → http://ollama:11434/v1 inside the container).
+    # For all other providers leave as None so each client uses its own default.
+    "backend_url": _ollama_base_url if _default_provider == "ollama" else None,
     # Provider-specific thinking configuration
     "google_thinking_level": None,      # "high", "minimal", etc.
     "openai_reasoning_effort": None,    # "medium", "high", "low"

@@ -1,35 +1,63 @@
 services:
   tradingagents:
     build: .
+    user: root
     env_file:
       - .env
+    environment:
+      - TRADINGAGENTS_HOME=/home/appuser/app/.tradingagents
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
+      - ./.tradingagents:/home/appuser/app/.tradingagents
     tty: true
     stdin_open: true
 
   ollama:
     image: ollama/ollama:latest
     volumes:
-      - ollama_data:/root/.ollama
+      # Use pre-downloaded models from the Windows Ollama installation.
+      # Actual model storage is in the Windows user profile, not C:\ollama.
+      - /mnt/windows/Users/hasno/.ollama:/root/.ollama
+    environment:
+      - OLLAMA_NUM_GPU=999
+      - OLLAMA_GPU_OVERHEAD=0
+    deploy:
+      resources:
+        reservations:
+          devices:
+            - driver: nvidia
+              count: all
+              capabilities: [gpu]
     profiles:
       - ollama
+    healthcheck:
+      test: ["CMD-SHELL", "ollama list > /dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 6
+      start_period: 20s
 
   tradingagents-ollama:
     build: .
+    user: root
     env_file:
       - .env
     environment:
+      - TRADINGAGENTS_HOME=/home/appuser/app/.tradingagents
       - LLM_PROVIDER=ollama
+      # Point the app at the host's ollama (listening on 0.0.0.0:11434).
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      # Pre-select qwen3:8b so the CLI defaults are correct for both
+      # quick and deep thinking roles.
+      - DEEP_THINK_LLM=qwen3:8b
+      - QUICK_THINK_LLM=qwen3:8b
     volumes:
-      - tradingagents_data:/home/appuser/.tradingagents
-    depends_on:
-      - ollama
+      - ./.tradingagents:/home/appuser/app/.tradingagents
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
     tty: true
     stdin_open: true
     profiles:
       - ollama
 
-volumes:
-  tradingagents_data:
-  ollama_data:
+# No named volumes — all persistent state uses the bind-mounted .tradingagents/
+# directory at the project root, which is writable from both host and container.
