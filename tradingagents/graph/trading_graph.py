@@ -36,7 +36,13 @@ from tradingagents.agents.utils.agent_utils import (
     get_income_statement,
     get_news,
     get_insider_transactions,
-    get_global_news
+    get_global_news,
+    get_crypto_fundamentals,
+    get_crypto_onchain_metrics,
+    get_crypto_social_sentiment,
+    get_crypto_dev_activity,
+    get_github_repo_activity,
+    get_macro_indicators,
 )
 
 from .checkpointer import checkpoint_step, clear_checkpoint, get_checkpointer, thread_id
@@ -167,6 +173,8 @@ class TradingAgentsGraph:
                 [
                     # News tools for social media analysis
                     get_news,
+                    # Crypto sentiment tools
+                    get_crypto_social_sentiment,
                 ]
             ),
             "news": ToolNode(
@@ -175,6 +183,8 @@ class TradingAgentsGraph:
                     get_news,
                     get_global_news,
                     get_insider_transactions,
+                    # Macro data for the news analyst
+                    get_macro_indicators,
                 ]
             ),
             "fundamentals": ToolNode(
@@ -184,49 +194,92 @@ class TradingAgentsGraph:
                     get_balance_sheet,
                     get_cashflow,
                     get_income_statement,
+                    # Crypto fundamentals (available for both but relevant for crypto)
+                    get_crypto_fundamentals,
+                    get_crypto_onchain_metrics,
+                    get_crypto_dev_activity,
+                    get_github_repo_activity,
+                ]
+            ),
+            "macros": ToolNode(
+                [
+                    # Macroeconomic data tools
+                    get_macro_indicators,
                 ]
             ),
         }
 
+    def _get_asset_class(self, ticker: str) -> str:
+        """Heuristic to detect crypto assets by ticker suffix/prefix."""
+        upper = ticker.upper().replace("-", "")
+        crypto_suffixes = ["USD", "USDT", "USDC", "BTC", "ETH", "SOL", "XRP"]
+        # BTC-USD, ETH-USD pattern
+        if "-" in ticker and ticker.split("-")[0].isalpha() and ticker.split("-")[1] == "USD":
+            base = ticker.split("-")[0].upper()
+            if len(base) <= 6 or base in ("BTC", "ETH", "SOL", "XRP", "ADA", "DOGE", "DOT", "AVAX",
+                                           "LINK", "MATIC", "ATOM", "UNI", "LTC", "BCH", "XLM",
+                                           "TRX", "FIL", "APT", "ARB", "OP", "NEAR", "ALGO",
+                                           "HBAR", "VET", "ICP", "SAND", "MANA", "APE", "AXS",
+                                           "GALA", "IMX", "SEI", "SUI", "TIA", "INJ", "AAVE",
+                                           "MKR", "CRV", "PEPE", "WIF", "BONK", "FLOKI", "TAO",
+                                           "JUP", "ENA", "STRK", "PENDLE", "PYTH", "RUNE",
+                                           "FET", "GRT", "STX", "EGLD", "FTM", "KAS", "RNDR"):
+                return "crypto"
+        # USDT/USDC suffix pattern
+        if any(ticker.upper().endswith(s) for s in crypto_suffixes):
+            base = ticker.upper().rstrip("USDTC").rstrip("USD")
+            if base and len(base) <= 10:
+                return "crypto"
+        return "equity"
+
     def _fetch_returns(
-        self, ticker: str, trade_date: str, holding_days: int = 5
+        self, ticker: str, trade_date: str, holding_days: int = 5,
+        asset_class: str = "equity",
     ) -> Tuple[Optional[float], Optional[float], Optional[int]]:
         """Fetch raw and alpha return for ticker over holding_days from trade_date.
 
         Returns (raw_return, alpha_return, actual_holding_days) or
         (None, None, None) if price data is unavailable (too recent, delisted,
         or network error).
+
+        For crypto the benchmark defaults to BTC-USD; for equities to SPY.
+        Both can be overridden via config["benchmark_ticker"].
         """
         try:
             start = datetime.strptime(trade_date, "%Y-%m-%d")
-            end = start + timedelta(days=holding_days + 7)  # buffer for weekends/holidays
+            buffer_days = holding_days + 7 if asset_class != "crypto" else holding_days + 1
+            end = start + timedelta(days=buffer_days)
             end_str = end.strftime("%Y-%m-%d")
 
-            stock = yf.Ticker(ticker).history(start=trade_date, end=end_str)
-            spy = yf.Ticker("SPY").history(start=trade_date, end=end_str)
+            benchmark = self.config.get("benchmark_ticker")
+            if benchmark is None:
+                benchmark = "BTC-USD" if asset_class == "crypto" else "SPY"
 
-            if len(stock) < 2 or len(spy) < 2:
+            stock = yf.Ticker(ticker).history(start=trade_date, end=end_str)
+            bench = yf.Ticker(benchmark).history(start=trade_date, end=end_str)
+
+            if len(stock) < 2 or len(bench) < 2:
                 return None, None, None
 
-            actual_days = min(holding_days, len(stock) - 1, len(spy) - 1)
+            actual_days = min(holding_days, len(stock) - 1, len(bench) - 1)
             raw = float(
                 (stock["Close"].iloc[actual_days] - stock["Close"].iloc[0])
                 / stock["Close"].iloc[0]
             )
-            spy_ret = float(
-                (spy["Close"].iloc[actual_days] - spy["Close"].iloc[0])
-                / spy["Close"].iloc[0]
+            bench_ret = float(
+                (bench["Close"].iloc[actual_days] - bench["Close"].iloc[0])
+                / bench["Close"].iloc[0]
             )
-            alpha = raw - spy_ret
+            alpha = raw - bench_ret
             return raw, alpha, actual_days
         except Exception as e:
-            logger.warning(
-                "Could not resolve outcome for %s on %s (will retry next run): %s",
+            logger.debug(
+                "Could not resolve outcome for %s on %s: %s",
                 ticker, trade_date, e,
             )
             return None, None, None
 
-    def _resolve_pending_entries(self, ticker: str) -> None:
+    def _resolve_pending_entries(self, ticker: str, asset_class: str = "equity") -> None:
         """Resolve pending log entries for ticker at the start of a new run.
 
         Fetches returns for each same-ticker pending entry, generates reflections,
@@ -236,13 +289,16 @@ class TradingAgentsGraph:
         Trade-off: only same-ticker entries are resolved per run.  Entries for
         other tickers accumulate until that ticker is run again.
         """
-        pending = [e for e in self.memory_log.get_pending_entries() if e["ticker"] == ticker]
+        try:
+            pending = [e for e in self.memory_log.get_pending_entries() if e["ticker"] == ticker]
+        except Exception:
+            pending = []
         if not pending:
             return
 
         updates = []
         for entry in pending:
-            raw, alpha, days = self._fetch_returns(ticker, entry["date"])
+            raw, alpha, days = self._fetch_returns(ticker, entry["date"], asset_class=asset_class)
             if raw is None:
                 continue  # price not available yet — try again next run
             reflection = self.reflector.reflect_on_final_decision(
@@ -260,19 +316,29 @@ class TradingAgentsGraph:
             })
 
         if updates:
-            self.memory_log.batch_update_with_outcomes(updates)
+            try:
+                self.memory_log.batch_update_with_outcomes(updates)
+            except Exception as e:
+                logger.warning("Could not update memory log outcomes: %s", e)
 
-    def propagate(self, company_name, trade_date):
+    def propagate(self, company_name, trade_date, asset_class=None):
         """Run the trading agents graph for a company on a specific date.
 
         When ``checkpoint_enabled`` is set in config, the graph is recompiled
         with a per-ticker SqliteSaver so a crashed run can resume from the last
         successful node on a subsequent invocation with the same ticker+date.
+
+        Args:
+            company_name: Ticker symbol (e.g. AAPL, BTC-USD)
+            trade_date: Analysis date in YYYY-MM-DD format
+            asset_class: "equity" or "crypto"
         """
         self.ticker = company_name
+        if asset_class is None:
+            asset_class = self._get_asset_class(company_name)
 
         # Resolve any pending memory-log entries for this ticker before the pipeline runs.
-        self._resolve_pending_entries(company_name)
+        self._resolve_pending_entries(company_name, asset_class=asset_class)
 
         # Recompile with a checkpointer if the user opted in.
         if self.config.get("checkpoint_enabled"):
@@ -293,19 +359,19 @@ class TradingAgentsGraph:
                 logger.info("Starting fresh for %s on %s", company_name, trade_date)
 
         try:
-            return self._run_graph(company_name, trade_date)
+            return self._run_graph(company_name, trade_date, asset_class=asset_class)
         finally:
             if self._checkpointer_ctx is not None:
                 self._checkpointer_ctx.__exit__(None, None, None)
                 self._checkpointer_ctx = None
                 self.graph = self.workflow.compile()
 
-    def _run_graph(self, company_name, trade_date):
+    def _run_graph(self, company_name, trade_date, asset_class="equity"):
         """Execute the graph and write the resulting state to disk and memory log."""
         # Initialize state — inject memory log context for PM.
         past_context = self.memory_log.get_past_context(company_name)
         init_agent_state = self.propagator.create_initial_state(
-            company_name, trade_date, past_context=past_context
+            company_name, trade_date, past_context=past_context, asset_class=asset_class,
         )
         args = self.propagator.get_graph_args()
 
@@ -381,13 +447,15 @@ class TradingAgentsGraph:
 
         # Save to file. Reject ticker values that would escape the
         # results directory when joined as a path component.
-        safe_ticker = safe_ticker_component(self.ticker)
-        directory = Path(self.config["results_dir"]) / safe_ticker / "TradingAgentsStrategy_logs"
-        directory.mkdir(parents=True, exist_ok=True)
-
-        log_path = directory / f"full_states_log_{trade_date}.json"
-        with open(log_path, "w", encoding="utf-8") as f:
-            json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+        try:
+            safe_ticker = safe_ticker_component(self.ticker)
+            directory = Path(self.config["results_dir"]) / safe_ticker / "TradingAgentsStrategy_logs"
+            directory.mkdir(parents=True, exist_ok=True)
+            log_path = directory / f"full_states_log_{trade_date}.json"
+            with open(log_path, "w", encoding="utf-8") as f:
+                json.dump(self.log_states_dict[str(trade_date)], f, indent=4)
+        except (OSError, PermissionError) as e:
+            logger.warning("Could not save state log for %s on %s: %s", self.ticker, trade_date, e)
 
     def process_signal(self, full_signal):
         """Process a signal to extract the core decision."""

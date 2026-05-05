@@ -1,0 +1,9 @@
+# Equities
+AAPL
+MSFT
+NVDA
+
+# Crypto
+BTC-USD
+ETH-USD
+SOL-USD

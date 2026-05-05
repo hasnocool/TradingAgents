@@ -1,20 +1,52 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
-from tradingagents.agents.utils.agent_utils import build_instrument_context, get_language_instruction, get_news
+from tradingagents.agents.utils.agent_utils import (
+    build_asset_class_instruction,
+    build_instrument_context,
+    get_crypto_social_sentiment,
+    get_language_instruction,
+    get_news,
+)
 from tradingagents.dataflows.config import get_config
 
 
 def create_social_media_analyst(llm):
     def social_media_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
+        _upper = ticker.upper()
+        _is_crypto = (
+            state.get("asset_class") == "crypto"
+            or _upper.endswith("USD") and "-" in _upper
+            or _upper.endswith("USDT")
+        )
+        asset_class = "crypto" if _is_crypto else "equity"
+        instrument_context = build_instrument_context(ticker, asset_class)
+        asset_instruction = build_asset_class_instruction(asset_class)
 
         tools = [
             get_news,
+            get_crypto_social_sentiment,
         ]
 
+        crypto_sentiment_guide = (
+            ""
+            if asset_class != "crypto"
+            else " For cryptocurrencies, use `get_crypto_social_sentiment` for quantitative "
+            "social sentiment data (social volume, sentiment balance, social dominance) from "
+            "Twitter, Reddit, Telegram, and Discord. "
+        )
+
         system_message = (
-            "You are a social media and company specific news researcher/analyst tasked with analyzing social media posts, recent company news, and public sentiment for a specific company over the past week. You will be given a company's name your objective is to write a comprehensive long report detailing your analysis, insights, and implications for traders and investors on this company's current state after looking at social media and what people are saying about that company, analyzing sentiment data of what people feel each day about the company, and looking at recent company news. Use the get_news(query, start_date, end_date) tool to search for company-specific news and social media discussions. Try to look at all sources possible from social media to sentiment to news. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + """ Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."""
+            f" You are a social media and sentiment researcher/analyst tasked with analyzing "
+            f"social media posts, recent news, and public sentiment for a specific instrument "
+            f"over the past week. Write a comprehensive report detailing your analysis, insights, "
+            f"and implications for traders and investors. "
+            f"{asset_instruction}"
+            f" Use `get_news` to search for instrument-specific news and social media discussions."
+            f"{crypto_sentiment_guide}"
+            f" Provide specific, actionable insights with supporting evidence to help traders "
+            f"make informed decisions."
+            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
             + get_language_instruction()
         )
 
@@ -44,14 +76,9 @@ def create_social_media_analyst(llm):
 
         result = chain.invoke(state["messages"])
 
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
-
         return {
             "messages": [result],
-            "sentiment_report": report,
+            "sentiment_report": result.content or "",
         }
 
     return social_media_analyst_node

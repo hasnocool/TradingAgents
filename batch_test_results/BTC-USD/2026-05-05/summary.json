@@ -1,0 +1,16 @@
+{
+  "ticker": "BTC-USD",
+  "asset_class": "crypto",
+  "date": "2026-05-05",
+  "signal": "Hold",
+  "elapsed_sec": 281.8,
+  "reports": [
+    "market_report",
+    "sentiment_report",
+    "news_report",
+    "fundamentals_report",
+    "investment_plan",
+    "trader_investment_plan",
+    "final_trade_decision"
+  ]
+}

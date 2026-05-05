@@ -23,6 +23,15 @@ from .alpha_vantage import (
     get_global_news as get_alpha_vantage_global_news,
 )
 from .alpha_vantage_common import AlphaVantageRateLimitError
+from .quota_guard import QuotaExhaustedError
+
+# New data sources
+from .newsapi import get_news_newsapi, get_global_news_newsapi
+from .coingecko import get_crypto_fundamentals
+from .santiment import get_on_chain_metrics, get_social_sentiment, get_dev_activity
+from .fred import get_macro_indicators as get_fred_macro_indicators
+from .bls import get_bls_indicators
+from .github_repo import get_github_activity
 
 # Configuration and routing logic
 from .config import get_config
@@ -30,7 +39,7 @@ from .config import get_config
 # Tools organized by category
 TOOLS_CATEGORIES = {
     "core_stock_apis": {
-        "description": "OHLCV stock price data",
+        "description": "OHLCV stock/crypto price data",
         "tools": [
             "get_stock_data"
         ]
@@ -57,12 +66,35 @@ TOOLS_CATEGORIES = {
             "get_global_news",
             "get_insider_transactions",
         ]
-    }
+    },
+    "crypto_fundamentals": {
+        "description": "Crypto on-chain and market fundamentals",
+        "tools": [
+            "get_crypto_fundamentals",
+            "get_crypto_onchain_metrics",
+            "get_crypto_social_sentiment",
+            "get_crypto_dev_activity",
+            "get_github_repo_activity",
+        ]
+    },
+    "macro_data": {
+        "description": "Macroeconomic indicators (FRED, BLS)",
+        "tools": [
+            "get_macro_indicators",
+        ]
+    },
 }
 
 VENDOR_LIST = [
     "yfinance",
     "alpha_vantage",
+    "newsapi",
+    "coingecko",
+    "coinmarketcap",
+    "santiment",
+    "fred",
+    "bls",
+    "github",
 ]
 
 # Mapping of methods to their vendor-specific implementations
@@ -98,14 +130,37 @@ VENDOR_METHODS = {
     "get_news": {
         "alpha_vantage": get_alpha_vantage_news,
         "yfinance": get_news_yfinance,
+        "newsapi": get_news_newsapi,
     },
     "get_global_news": {
         "yfinance": get_global_news_yfinance,
         "alpha_vantage": get_alpha_vantage_global_news,
+        "newsapi": get_global_news_newsapi,
     },
     "get_insider_transactions": {
         "alpha_vantage": get_alpha_vantage_insider_transactions,
         "yfinance": get_yfinance_insider_transactions,
+    },
+    # crypto_fundamentals
+    "get_crypto_fundamentals": {
+        "coingecko": get_crypto_fundamentals,
+    },
+    "get_crypto_onchain_metrics": {
+        "santiment": get_on_chain_metrics,
+    },
+    "get_crypto_social_sentiment": {
+        "santiment": get_social_sentiment,
+    },
+    "get_crypto_dev_activity": {
+        "santiment": get_dev_activity,
+    },
+    "get_github_repo_activity": {
+        "github": get_github_activity,
+    },
+    # macro_data
+    "get_macro_indicators": {
+        "fred": get_fred_macro_indicators,
+        "bls": get_bls_indicators,
     },
 }
 
@@ -157,6 +212,8 @@ def route_to_vendor(method: str, *args, **kwargs):
         try:
             return impl_func(*args, **kwargs)
         except AlphaVantageRateLimitError:
-            continue  # Only rate limits trigger fallback
+            continue
+        except QuotaExhaustedError:
+            continue
 
     raise RuntimeError(f"No available vendor for '{method}'")

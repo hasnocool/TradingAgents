@@ -69,10 +69,17 @@ DEFAULT_CONFIG = {
         "core_stock_apis": "yfinance",       # Options: alpha_vantage, yfinance
         "technical_indicators": "yfinance",  # Options: alpha_vantage, yfinance
         "fundamental_data": "yfinance",      # Options: alpha_vantage, yfinance
-        "news_data": "yfinance",             # Options: alpha_vantage, yfinance
+        "news_data": "yfinance",             # Options: yfinance, alpha_vantage, newsapi
+        "crypto_market_data": "coingecko",   # Options: coingecko, coinmarketcap
+        "crypto_fundamentals": "coingecko",  # Options: coingecko, coinmarketcap
+        "crypto_onchain": "santiment",       # Santiment on-chain metrics
+        "crypto_sentiment": "santiment",     # Santiment social sentiment
+        "macro_data": "fred",                # Options: fred, bls
     },
     # Tool-level configuration (takes precedence over category-level)
     "tool_vendors": {
         # Example: "get_stock_data": "alpha_vantage",  # Override category default
     },
+    # Benchmark ticker for alpha calculation: SPY for equities, BTC-USD for crypto
+    "benchmark_ticker": None,  # Auto-selected: SPY for equity, BTC-USD for crypto
 }

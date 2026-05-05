@@ -83,7 +83,10 @@ def load_ohlcv(symbol: str, curr_date: str) -> pd.DataFrame:
             auto_adjust=True,
         ))
         data = data.reset_index()
-        data.to_csv(data_file, index=False, encoding="utf-8")
+        try:
+            data.to_csv(data_file, index=False, encoding="utf-8")
+        except (OSError, PermissionError):
+            pass  # cache write is optional — data still works in-memory
 
     data = _clean_dataframe(data)
 

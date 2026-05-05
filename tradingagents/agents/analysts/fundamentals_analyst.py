@@ -1,12 +1,17 @@
 from langchain_core.prompts import ChatPromptTemplate, MessagesPlaceholder
 from tradingagents.agents.utils.agent_utils import (
     build_instrument_context,
+    build_asset_class_instruction,
     get_balance_sheet,
     get_cashflow,
     get_fundamentals,
+    get_github_repo_activity,
     get_income_statement,
     get_insider_transactions,
     get_language_instruction,
+    get_crypto_fundamentals,
+    get_crypto_onchain_metrics,
+    get_crypto_dev_activity,
 )
 from tradingagents.dataflows.config import get_config
 
@@ -14,19 +19,63 @@ from tradingagents.dataflows.config import get_config
 def create_fundamentals_analyst(llm):
     def fundamentals_analyst_node(state):
         current_date = state["trade_date"]
-        instrument_context = build_instrument_context(state["company_of_interest"])
+        ticker = state["company_of_interest"]
 
-        tools = [
-            get_fundamentals,
-            get_balance_sheet,
-            get_cashflow,
-            get_income_statement,
-        ]
+        # Belt-and-suspenders: detect crypto from ticker format even if
+        # state.asset_class was not set correctly by an earlier step.
+        _upper = ticker.upper()
+        _is_crypto = (
+            state.get("asset_class") == "crypto"
+            or _upper.endswith("USD") and "-" in _upper
+            or _upper.endswith("USDT")
+        )
+        asset_class = "crypto" if _is_crypto else "equity"
+
+        instrument_context = build_instrument_context(ticker, asset_class)
+        asset_instruction = build_asset_class_instruction(asset_class)
+
+        if asset_class == "crypto":
+            tools = [
+                get_crypto_fundamentals,
+                get_crypto_onchain_metrics,
+                get_crypto_dev_activity,
+                get_github_repo_activity,
+            ]
+            tool_guide = (
+                "This is a cryptocurrency (e.g. BTC-USD = Bitcoin priced in USD). "
+                "You MUST call `get_crypto_fundamentals` FIRST — it returns price, market cap, "
+                "circulating/max supply, all-time high/low, 24h/7d/30d/1y price changes, "
+                "developer stats (stars, forks, commits), community metrics (Twitter, Reddit), "
+                "AND the project's GitHub repo URLs. "
+                "Then call `get_crypto_onchain_metrics` for on-chain analysis: MVRV ratio (is the "
+                "asset over/undervalued?), NVT ratio (network valuation vs transaction volume), "
+                "exchange inflow/outflow ratio (are holders depositing to sell or withdrawing to HODL?), "
+                "active addresses (network usage trend), and supply in profit. "
+                "Then call `get_github_repo_activity` with the repo URL from CoinGecko data to fetch "
+                "live GitHub activity: recent commits, open issues, and open pull requests. "
+                "Finally call `get_crypto_dev_activity` for Santiment's development activity metrics "
+                "(commit frequency, contributing developer counts) as a secondary source."
+            )
+        else:
+            tools = [
+                get_fundamentals,
+                get_balance_sheet,
+                get_cashflow,
+                get_income_statement,
+            ]
+            tool_guide = (
+                "Use `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, "
+                "`get_cashflow`, and `get_income_statement` for specific financial statements."
+            )
 
         system_message = (
-            "You are a researcher tasked with analyzing fundamental information over the past week about a company. Please write a comprehensive report of the company's fundamental information such as financial documents, company profile, basic company financials, and company financial history to gain a full view of the company's fundamental information to inform traders. Make sure to include as much detail as possible. Provide specific, actionable insights with supporting evidence to help traders make informed decisions."
-            + " Make sure to append a Markdown table at the end of the report to organize key points in the report, organized and easy to read."
-            + " Use the available tools: `get_fundamentals` for comprehensive company analysis, `get_balance_sheet`, `get_cashflow`, and `get_income_statement` for specific financial statements."
+            f"You are a researcher tasked with analyzing fundamental information about "
+            f"an instrument over the past week. Please write a comprehensive report "
+            f"covering the instrument's financial health, market position, and key metrics. "
+            f"{asset_instruction}"
+            f" Make sure to append a Markdown table at the end of the report to organize "
+            f"key points in the report, organized and easy to read."
+            f" {tool_guide}"
             + get_language_instruction(),
         )
 
@@ -56,14 +105,9 @@ def create_fundamentals_analyst(llm):
 
         result = chain.invoke(state["messages"])
 
-        report = ""
-
-        if len(result.tool_calls) == 0:
-            report = result.content
-
         return {
             "messages": [result],
-            "fundamentals_report": report,
+            "fundamentals_report": result.content or "",
         }
 
     return fundamentals_analyst_node

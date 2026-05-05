@@ -7,10 +7,10 @@ from typing import Annotated
 
 SavePathType = Annotated[str, "File path to save data. If None, data is not saved."]
 
-# Tickers can contain letters, digits, dot, dash, underscore, and caret
-# (for index symbols like ^GSPC). Anything else is rejected so the value
-# never escapes a containing directory when interpolated into a path.
-_TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^]+$")
+# Tickers can contain letters, digits, dot, dash, underscore, caret, and /
+# (for index symbols like ^GSPC and exchange-native crypto pairs like BTC/USDT).
+# The value is also checked so it never escapes a containing directory.
+_TICKER_PATH_RE = re.compile(r"^[A-Za-z0-9._\-\^/]+$")
 
 
 def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
@@ -38,6 +38,10 @@ def safe_ticker_component(value: str, *, max_len: int = 32) -> str:
     # value that's only dots.
     if set(value) == {"."}:
         raise ValueError(f"ticker cannot consist solely of dots: {value!r}")
+    # Reject values starting or ending with '/' to prevent traversal with
+    # exchange-native crypto pairs like BTC/USDT.
+    if value.startswith("/") or value.endswith("/"):
+        raise ValueError(f"ticker cannot start or end with '/': {value!r}")
     return value
 
 
@@ -61,14 +65,14 @@ def decorate_all_methods(decorator):
     return class_decorator
 
 
-def get_next_weekday(date):
-
+def get_next_trading_day(date, asset_class="equity"):
     if not isinstance(date, datetime):
         date = datetime.strptime(date, "%Y-%m-%d")
 
+    if asset_class == "crypto":
+        return date
+
     if date.weekday() >= 5:
         days_to_add = 7 - date.weekday()
-        next_weekday = date + timedelta(days=days_to_add)
-        return next_weekday
-    else:
-        return date
+        return date + timedelta(days=days_to_add)
+    return date

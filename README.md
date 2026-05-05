@@ -127,7 +127,7 @@ cp .env.example .env  # add your API keys
 docker compose run --rm tradingagents
 ```
 
-For local models with Ollama:
+For local models with Ollama (running on the host at `0.0.0.0:11434`):
 ```bash
 docker compose --profile ollama run --rm tradingagents-ollama
 ```

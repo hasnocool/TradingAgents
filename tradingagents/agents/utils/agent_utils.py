@@ -18,6 +18,18 @@ from tradingagents.agents.utils.news_data_tools import (
     get_insider_transactions,
     get_global_news
 )
+from tradingagents.agents.utils.crypto_data_tools import (
+    get_crypto_fundamentals,
+    get_crypto_onchain_metrics,
+    get_crypto_social_sentiment,
+    get_crypto_dev_activity,
+)
+from tradingagents.agents.utils.macro_tools import (
+    get_macro_indicators,
+)
+from tradingagents.agents.utils.github_tools import (
+    get_github_repo_activity,
+)
 
 
 def get_language_instruction() -> str:
@@ -34,12 +46,61 @@ def get_language_instruction() -> str:
     return f" Write your entire response in {lang}."
 
 
-def build_instrument_context(ticker: str) -> str:
-    """Describe the exact instrument so agents preserve exchange-qualified tickers."""
+_CRYPTO_NAMES = {
+    "BTC": "Bitcoin", "ETH": "Ethereum", "SOL": "Solana", "XRP": "Ripple",
+    "ADA": "Cardano", "AVAX": "Avalanche", "DOT": "Polkadot", "DOGE": "Dogecoin",
+    "LINK": "Chainlink", "MATIC": "Polygon", "ATOM": "Cosmos", "UNI": "Uniswap",
+    "LTC": "Litecoin", "BCH": "Bitcoin Cash", "XLM": "Stellar", "TRX": "Tron",
+    "FIL": "Filecoin", "APT": "Aptos", "ARB": "Arbitrum", "OP": "Optimism",
+    "INJ": "Injective", "AAVE": "Aave", "MKR": "Maker", "CRV": "Curve DAO",
+    "NEAR": "NEAR Protocol", "FTM": "Fantom", "ALGO": "Algorand",
+    "HBAR": "Hedera", "VET": "VeChain", "ICP": "Internet Computer",
+    "FET": "Fetch.ai", "GRT": "The Graph", "RNDR": "Render Network",
+    "SAND": "The Sandbox", "MANA": "Decentraland", "APE": "ApeCoin",
+    "AXS": "Axie Infinity", "GALA": "Gala", "IMX": "Immutable X",
+    "SEI": "Sei", "SUI": "Sui", "TIA": "Celestia", "WIF": "dogwifcoin",
+    "BONK": "Bonk", "PEPE": "Pepe", "FLOKI": "Floki", "TAO": "Bittensor",
+    "JUP": "Jupiter", "ENA": "Ethena", "PENDLE": "Pendle", "PYTH": "Pyth Network",
+    "STRK": "StarkNet", "RUNE": "THORChain", "STX": "Stacks", "EGLD": "MultiversX",
+    "KAS": "Kaspa", "BEAM": "Beam", "MNT": "Mantle", "TIA": "Celestia",
+    "CRO": "Cronos", "QNT": "Quant", "AR": "Arweave", "ROSE": "Oasis Network",
+}
+
+
+def _resolve_crypto_name(ticker: str) -> str:
+    base = ticker.split("-")[0].split("/")[0].upper()
+    name = _CRYPTO_NAMES.get(base, base)
+    return f"{name} ({ticker})"
+
+
+def build_instrument_context(ticker: str, asset_class: str = "equity") -> str:
+    label = "cryptocurrency" if asset_class == "crypto" else "company/equity"
+    if asset_class == "crypto":
+        resolved = _resolve_crypto_name(ticker)
+        description = (
+            f"The instrument to analyze is `{ticker}` ({resolved}). "
+            f"This is the Yahoo Finance / market-standard ticker format. "
+            f"Use this exact ticker in every tool call, report, and recommendation."
+        )
+    else:
+        description = (
+            f"The instrument to analyze is `{ticker}` ({label}). "
+            f"Use this exact ticker in every tool call, report, and recommendation, "
+            f"preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
+        )
+    return description
+
+
+def build_asset_class_instruction(asset_class: str = "equity") -> str:
+    if asset_class != "crypto":
+        return ""
     return (
-        f"The instrument to analyze is `{ticker}`. "
-        "Use this exact ticker in every tool call, report, and recommendation, "
-        "preserving any exchange suffix (e.g. `.TO`, `.L`, `.HK`, `.T`)."
+        " This is a cryptocurrency — it trades 24/7, has no earnings reports or "
+        "P/E ratios, and is driven by on-chain metrics (MVRV, NVT, exchange flows, "
+        "active addresses), protocol revenue, staking yields, regulatory news, and "
+        "market-wide crypto sentiment rather than traditional fundamentals. "
+        "Volatility is typically 2-5x higher than equities. "
+        "The ticker format like BTC-USD means Bitcoin priced in US Dollars."
     )
 
 def create_msg_delete():

@@ -19,9 +19,9 @@ so that:
 from __future__ import annotations
 
 from enum import Enum
-from typing import Optional
+from typing import Optional, Union
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, Field, field_validator
 
 
 # ---------------------------------------------------------------------------
@@ -89,6 +89,13 @@ class ResearchPlan(BaseModel):
         ),
     )
 
+    @field_validator("strategic_actions", mode="before")
+    @classmethod
+    def coerce_list_to_str(cls, v):
+        if isinstance(v, list):
+            return "\n".join(f"- {item}" for item in v)
+        return v
+
 
 def render_research_plan(plan: ResearchPlan) -> str:
     """Render a ResearchPlan to markdown for storage and the trader's prompt context."""
@@ -136,6 +143,13 @@ class TraderProposal(BaseModel):
         default=None,
         description="Optional sizing guidance, e.g. '5% of portfolio'.",
     )
+
+    @field_validator("reasoning", "position_sizing", mode="before")
+    @classmethod
+    def coerce_str_fields(cls, v):
+        if isinstance(v, list):
+            return "\n".join(f"- {item}" for item in v)
+        return v
 
 
 def render_trader_proposal(proposal: TraderProposal) -> str:
@@ -204,6 +218,13 @@ class PortfolioDecision(BaseModel):
         default=None,
         description="Optional recommended holding period, e.g. '3-6 months'.",
     )
+
+    @field_validator("executive_summary", "investment_thesis", "time_horizon", mode="before")
+    @classmethod
+    def coerce_str_fields(cls, v):
+        if isinstance(v, list):
+            return "\n".join(f"- {item}" for item in v)
+        return v
 
 
 def render_pm_decision(decision: PortfolioDecision) -> str:

@@ -178,8 +178,6 @@ def get_stock_stats_indicators_window(
     result_str = (
         f"## {indicator} values from {before.strftime('%Y-%m-%d')} to {end_date}:\n\n"
         + ind_string
-        + "\n\n"
-        + best_ind_params.get(indicator, "No description available.")
     )
 
     return result_str

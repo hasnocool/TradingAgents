@@ -1,0 +1,16 @@
+{
+  "ticker": "AAPL",
+  "asset_class": "equity",
+  "date": "2026-05-05",
+  "signal": "Overweight",
+  "elapsed_sec": 274.6,
+  "reports": [
+    "market_report",
+    "sentiment_report",
+    "news_report",
+    "fundamentals_report",
+    "investment_plan",
+    "trader_investment_plan",
+    "final_trade_decision"
+  ]
+}

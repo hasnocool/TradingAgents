@@ -30,6 +30,10 @@ dependencies = [
     "tqdm>=4.67.1",
     "typing-extensions>=4.14.0",
     "yfinance>=0.2.63",
+    # Rate limiting & caching (required by all new dataflow modules)
+    "diskcache>=5.6.3",
+    # Broader news (stocks + crypto)
+    "newsapi-python>=0.2.7",
 ]
 
 [project.scripts]
